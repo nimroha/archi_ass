@@ -8,20 +8,24 @@
 
 section .rodata
 frmt_str:      DB   "%s", 0        ; format string
-prompt_str:    DB   "calc: ",0               ; input message
-over_str:      DB   "Error: Operand Stack Overflow",10,0 ; stack overflow message
+prompt_str:    DB   "calc: ",0,0              ; input message
+over_flow_str: DB   "Error: Operand Stack Overflow",10,0 ; stack overflow message
 no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; insufficient arguments message
 illegal_str:   DB   "Error: Illegal Input",10,0 ; illegal input message
+ctr_str:       DB   "Number of operations: %d", 10, 0 ; exit message
+read_str:      DB   "Read %s to buffer", 10, 0 ; read to buffer message
+push_str:      DB   "Pushed %d to stack", 10, 0 ; push message
 d_flag:        EQU  0x642d ; -d in ascii
 
      
 section .bss
 buffer:        RESB BUFFERSIZE ; input buffer
-stack:         RESD STACKSIZE ; operand stack
+my_stack:      RESD STACKSIZE ; operand stack
 
 section .data
 dbg:           DB 0 ; debug flag
-op_num:        DB 0 ; number of operands in the stack
+op_num:        DW 0 ; number of operands in the stack
+counter: 	     DD 0 ; operation counter
 
 
 
@@ -37,21 +41,21 @@ section .text
      extern stdin 
      extern stdout 
 
-%macro print_err 1 
-     pushad
-     push %1
-     push dword [stderr]
-     call fprintf
-     add esp, 8
-     popad
-%endmacro
 
-%macro print_out 1
-     pushad
-     push %1
-     call printf
-     add esp, 4
-     popad
+%macro print 2-* ; %1=stream pointer %2...=format and args (unbound)
+	pushad
+	mov ecx, %0
+	mov eax, %1
+	%rotate 1
+	dec ecx
+	%%p_loop:
+	    push %1
+	    %rotate 1
+	    loop %%p_loop, ecx
+	push dword [eax]
+	call fprintf 
+	add esp, 4*%0
+	popad
 %endmacro
 
 %macro sys_debug 1+  ; not used!!!!!!!
@@ -70,7 +74,7 @@ section .text
      %%skip:
 %endmacro
 
-%macro debug 1-* ; enter as many arguments as needed but reverse order from C convention
+%macro debug 1-* ; enter as many arguments as needed
      cmp byte [dbg], 0
      je %%skip
           pushad
@@ -97,16 +101,15 @@ section .text
      popad
 %endmacro
 
-%macro check_num 1
+%macro check_num 2 ; %1=byte to check %2=label to go
      cmp byte %1, 57
-     ja _illegal
+     ja %2
      cmp byte %1, 48
-     jb _illegal
+     jb %2
+     sub al, '0'
 %endmacro
 
 main: 
-
-
 
      push ebp  ; save stack pointer
      mov ebp, esp
@@ -114,7 +117,7 @@ main:
      mov eax, [ebp+8]  ; num of arguments
      num:
      cmp eax, 2 
-     jne my_calc
+     jne call_calc
      mov eax, [ebp+12] ; get pointer to argv
      mov ebx, [eax+4] ; get pointer to first argument
      mov eax, [ebx] ; get first argument
@@ -122,74 +125,139 @@ main:
 
      arg:
      cmp al, d_flag     ; check if -d 
-     jne my_calc
-     mov byte [dbg], 1        ; raise dbg flag
-     jmp my_calc
+     jne call_calc
+     mov byte [dbg], 1  ; raise dbg flag
+     jmp call_calc
 
-my_calc:
+call_calc:
+     pushad
+     pushfd
 
-     sys_debug "in my_calc", 10, 0
+	call my_calc 
+     ctr:
+     print stdout, ctr_str, eax
 
-     
-
-     .get_input:
-     print_out prompt_str
-
-     mov eax, 3 ; read to buffer
-     mov ebx, 0
-     mov ecx, buffer
-     mov edx, BUFFERSIZE
-     int 0x80
-
-  
-
-    
-     pushad ;;TODO delete this
-     mov eax, 4
-     mov ebx, 1
-     mov ecx, buffer
-     mov edx, BUFFERSIZE
-     int 0x80
+     popfd
      popad
 
+     exit:
+     mov eax, 1
+     int 0x80
+     nop
+	
+
+my_calc:
+     push ebp
+     mov ebp, esp
+
+     mov eax, [counter]
+
+     .get_input:
+     print stdout, prompt_str
+
+
+    push dword [stdin]
+    push BUFFERSIZE
+    push buffer
+    call fgets ; does eax now hold the number of chars read??
+    add esp, 12
+
+    ;debug buffer ; !!!causes segfault!!!
+
+inc dword [counter] ; just to see
 
      mov al, [buffer] ; for switch case
 q:
      cmp al, 'q'
-     je _quit
+     je my_calc.quit
 plus:
      cmp al, '+'
-     je _add
+     je my_calc.add
 p:
      cmp al, 'p'
-     je _pop_print
+     je my_calc.pop_print
 d:
      cmp al, 'd'
-     je _duplicate
+     je my_calc.dup
 and_:
      cmp al, '&'
-     je _and
+     je my_calc.and
 number:
-     check_num al
-
-
+     check_num al, my_calc.illegal
+     ;cmp word [op_num], STACKSIZE
+     ;jne my_calc.push
+     ;print stderr, over_flow_str
 
 jmp my_calc.get_input
 
-_illegal:
-     print_err illegal_str
+
+my_calc.illegal:
+     print stderr, illegal_str
      jmp my_calc.get_input
 
+my_calc.add:
+     cmp word [op_num], 2
+     jb skip_add
+     ;pop 2 numbers from my_stack and push to stack
+     ;call _add
+     ;push eax to my_stack
+     ;print answer (eax)
+     jmp my_calc.get_input
+     skip_add:
+     print stderr, no_args_str
+
+my_calc.pop_print:
+     cmp word [op_num], 1
+     jb skip_pop
+     ;pop 1 number from my_stack and push to stack
+     ;call _pop_print
+     ;print answer (eax)
+     jmp my_calc.get_input
+     skip_pop:
+     print stderr, no_args_str
+
+my_calc.dup:
+     cmp word [op_num], 1
+     jb skip_dup
+     ;pop 1 number from my_stack and push to stack
+     ;call _dup
+     jmp my_calc.get_input
+     skip_dup:
+     print stderr, no_args_str
+
+my_calc.and:
+     cmp word [op_num], 2
+     jb skip_and
+     ;pop 2 numbers from my_stack and push to stack
+     ;call _and
+     ;push eax to my_stack
+     ;print answer (eax)
+     jmp my_calc.get_input
+     skip_and:
+     print stderr, no_args_str
+
+my_calc.push:
+     ;push to my_stack
+
+
+my_calc.quit:
+     ;;;;TODO: free all mallocs
+     mov eax, [counter]
+     mov esp, ebp
+     pop ebp
+     ret ; !!ret only works in local labels !!
+     
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;  sub-routines  ;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 _add:
+
 _pop_print:
-_duplicate:
+
+_dup:
+
 _and:
 
-
-_quit:
-     ;;;;TODO: free all mallocs
-     mov eax, 1
-     int 0x80
-     nop
-
-     
+_push:
