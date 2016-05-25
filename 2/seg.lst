@@ -1,0 +1,44 @@
+     1                                  section .rodata
+     2 00000000 25730A00                StrF:          DB   "%s", 10, 0    ; Format string
+     3 00000004 63616C633A2000          InStr:         DB   "calc: ",0     ; Input message
+     4                                  BUFFERSIZE:    EQU  80
+     5                                       
+     6                                  section .bss
+     7 00000000 <res 00000050>          buffer:        RESB 80
+     8                                  
+     9                                  section .data
+    10                                  
+    11                                  
+    12                                  section .text 
+    13                                       align 16 
+    14                                       global main 
+    15                                       extern printf 
+    16                                       extern fprintf 
+    17                                       extern malloc 
+    18                                       extern free
+    19                                       extern fgets 
+    20                                       extern stderr 
+    21                                       extern stdin 
+    22                                       extern stdout 
+    23                                  
+    24                                  %macro print 2
+    25                                       push %1
+    26                                       push %2
+    27                                       call printf
+    28                                       add esp, 8
+    29                                  %endmacro
+    30                                  
+    31                                  main: 
+    32                                       ;print InStr, StrF
+    33 00000000 68[04000000]                 push InStr
+    34 00000005 68[00000000]                 push StrF
+    35 0000000A E8(00000000)                 call printf
+    36 0000000F 83C408                       add esp, 8
+    37                                       
+    38 00000012 68[00000000]                 push buffer
+    39                                       ;push BUFFERSIZE
+    40                                       ;push stdin
+    41                                       ;call fgets
+    42                                       ;add esp, 12
+    43                                  
+    44                                   
