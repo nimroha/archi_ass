@@ -9,6 +9,7 @@
 section .rodata
 frmt_str:      DB   "%s", 0        ; format string
 prompt_str:    DB   "calc: ",0,0              ; input message
+in_str:        DB   "got %s", 0        ; format string
 over_flow_str: DB   "Error: Operand Stack Overflow",10,0 ; stack overflow message
 no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; insufficient arguments message
 illegal_str:   DB   "Error: Illegal Input",10,0 ; illegal input message
@@ -24,8 +25,8 @@ my_stack:      RESD STACKSIZE ; operand stack
 
 section .data
 dbg:           DB 0 ; debug flag
-op_num:        DW 0 ; number of operands in the stack
-counter: 	     DD 0 ; operation counter
+op_num:        DD 0 ; number of operands in the stack
+counter: 	  	DD 0 ; operation counter
 
 
 
@@ -137,6 +138,15 @@ call_calc:
      ctr:
      print stdout, ctr_str, eax
 
+     ; =============== This actually prints the format ====================
+     pushad
+     push eax
+     push ctr_str
+     push dword [stdout]
+     call fprintf
+     add esp, 12
+     popad
+
      popfd
      popad
 
@@ -155,18 +165,35 @@ my_calc:
      .get_input:
      print stdout, prompt_str
 
-
+    pushad
     push dword [stdin]
     push BUFFERSIZE
     push buffer
     call fgets ; does eax now hold the number of chars read??
     add esp, 12
+    popad
 
-    ;debug buffer ; !!!causes segfault!!!
+    print stdout, buffer 
 
-inc dword [counter] ; just to see
+    ; =============== This actually prints the format ====================
+    pushad
+    push buffer
+    push in_str
+    push dword [stdout]
+    call fprintf
+    add esp, 12
+    popad
 
-     mov al, [buffer] ; for switch case
+    ;debug buffer 			; !!!causes segfault!!!
+
+inc dword [counter] 		; just to see
+
+     mov al, [buffer]	 	; for switch case
+     cmp al, 10				; ======== check if there was any input
+     je my_calc.illegal 	
+     mov ah, [buffer+1] 	; ======== to see if its a single char
+     cmp ah, 10
+     jne number
 q:
      cmp al, 'q'
      je my_calc.quit
@@ -183,10 +210,32 @@ and_:
      cmp al, '&'
      je my_calc.and
 number:
-     check_num al, my_calc.illegal
-     ;cmp word [op_num], STACKSIZE
+     ;check_num al, my_calc.illegal  	; ========= replaced with a thorough check on buffer
+
+	 ;cmp dword [op_num], STACKSIZE
      ;jne my_calc.push
      ;print stderr, over_flow_str
+
+mov eax, buffer 						; ========= x/10cb $eax
+
+check_my_num:							; ========= i am the replacement
+	mov ecx,0
+	.looptyloop:
+		cmp byte [buffer+ecx], 10
+		je check_my_num.confirmed
+		cmp byte [buffer+ecx], 57
+     	ja my_calc.illegal
+     	cmp byte [buffer+ecx], 48
+     	jb my_calc.illegal
+     	sub byte [buffer+ecx], '0'
+     	inc ecx
+     	jmp check_my_num.looptyloop
+    .confirmed:							; ========= ecx contains amount of digits
+
+    
+
+
+	
 
 jmp my_calc.get_input
 
