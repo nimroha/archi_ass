@@ -27,6 +27,9 @@ section .data
 dbg:           DB 0 ; debug flag
 op_num:        DD 0 ; number of operands in the stack
 counter: 	  	DD 0 ; operation counter
+head: 			DD 0 ; head of current operand
+tail: 			DD 0 ; tail of current operand
+current: 		DD 0 ; address of current link
 
 
 
@@ -91,11 +94,11 @@ section .text
      %%skip:
 %endmacro
 
-%macro make_link 2         ; %1=number %2=pointer to previous link->next
+%macro make_link 1         ; %1=number
      pushad
      push 5
      call malloc
-     mov [%2], eax
+     mov [current], eax
      mov byte ptr [eax], %1
      mov dword ptr [eax+1], 0
      add esp, 4
@@ -231,13 +234,46 @@ check_my_num:							; ========= i am the replacement
      	inc ecx
      	jmp check_my_num.looptyloop
     .confirmed:							; ========= ecx contains amount of digits
+    	cmp dword [op_num], STACKSIZE
+    	je check_my_num.overflow
+    .linking:							; ========= THIS TILL END OF BLOCK IS STILL IN TESTING AND TOUGHTS
+    	cmp ecx, 1
+    	je last_nibble
+    	cmp ecx, 0 
+    	je done
+    	mov byte dl, [buffer+ecx]		; get first nibble
+    	dec ecx
+    	shl byte [buffer+ecx], 4
+    	add byte dl, [buffer+ecx]		; get second nibble
+    	dec ecx
+
+    	make_link dl
+
+    	cmp dword [head], 0
+    	jne check_tail
+    	mov eax, [current]
+    	mov [head], eax
+    	mov [tail], eax
+    	check_tail:
+    	cmp dword [tail]
+
+
+    	jmp check_my_num.linking
+    .last_nibble:
+    	mov byte dl, [buffer+ecx]
+    	dec ecx
+    .done:
+    	jmp my_calc.push
+    .overflow:
+    	print stderr, over_flow_str
+		jmp my_calc.get_input			; ======= END OF NOT FINISHED AND NOT WORKING BLOCK
 
     
 
 
 	
 
-jmp my_calc.get_input
+
 
 
 my_calc.illegal:
