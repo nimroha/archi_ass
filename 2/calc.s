@@ -14,7 +14,8 @@ over_flow_str: DB   "Error: Operand Stack Overflow",10,0 					; stack overflow m
 no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; insufficient arguments message
 illegal_str:   DB   "Error: Illegal Input",10,0 							; illegal input message
 ctr_str:       DB   "Number of operations: %d", 10, 0 						; exit message
-nib_str:       DB   "Nibble: %x", 10, 0 									; nibble print
+nib_str:       DB   "%x", 0 												; nibble print
+new_line: 	   DB 	"", 10, 0												; new line...
 read_str:      DB   "Read %s to buffer", 10, 0 								; read to buffer message
 push_str:      DB   "Pushed %d to stack", 10, 0 							; push message
 d_flag:        EQU  0x642d 													; -d in ascii
@@ -279,6 +280,14 @@ mov eax, buffer 						; ========= x/10cb $eax
     	dec ecx
     .done:
     	call print_num
+
+    	pushad
+    	push new_line
+    	push dword [stdout]
+    	call fprintf
+	    add esp, 8
+	    popad
+
     	jmp my_calc.push
     .overflow:
     	print stderr, over_flow_str
@@ -360,9 +369,15 @@ my_calc.quit:
 ;;;;;;;;  sub-routines  ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-print_num:
+print_num:							; ======= prints the number pointed by head (recursive....)
 	pushad
 	mov dword eax, [head]
+
+	cmp dword [eax+1], 0			; base 
+	je print_num.routine
+	mov dword ebx, [eax+1]
+	mov dword [head], ebx
+	call print_num
 
 	.routine:
 	mov ebx, 0
@@ -376,11 +391,6 @@ print_num:
     add esp, 12
     popad
 
-    cmp dword [eax+1], 0
-	je print_num.done
-    mov dword eax, [eax+1]
-    jmp print_num.routine
-    .done:
     popad
     ret
 
