@@ -29,7 +29,6 @@ op_num:        DD 0 ; number of operands in the stack
 counter: 	  	DD 0 ; operation counter
 head: 			DD 0 ; head of current operand
 tail: 			DD 0 ; tail of current operand
-current: 		DD 0 ; address of current link
 
 
 
@@ -98,9 +97,18 @@ section .text
      pushad
      push 5
      call malloc
-     mov [current], eax
-     mov byte ptr [eax], %1
-     mov dword ptr [eax+1], 0
+     mov byte [eax], %1
+     mov dword [eax+1], 0
+     									; ============== added linking to the macro, perhaps should just use a func ?
+     cmp dword [head], 0				; check if its the first link, if so set as head and tail, if not link tail to the new link created
+     jne %%link_tail
+     mov [head], eax
+     mov [tail], eax
+     jmp %%done
+     %%link_tail:						; link a new link to the tail
+     mov dword [tail+1], eax			; set the new link as the NEXT of tail
+     %%done:
+
      add esp, 4
      popad
 %endmacro
@@ -167,6 +175,13 @@ my_calc:
 
      .get_input:
      print stdout, prompt_str
+
+     ; ================ trying to test whether linking was succesful
+     mov eax, [head]
+     mov byte bl, [eax]						; ========= x/10cb $eax
+     abc:
+     mov dword [head], 0
+     mov dword [tail], 0
 
     pushad
     push dword [stdin]
@@ -237,10 +252,10 @@ check_my_num:							; ========= i am the replacement
     	cmp dword [op_num], STACKSIZE
     	je check_my_num.overflow
     .linking:							; ========= THIS TILL END OF BLOCK IS STILL IN TESTING AND TOUGHTS
-    	cmp ecx, 1
-    	je last_nibble
-    	cmp ecx, 0 
-    	je done
+    	cmp ecx, 1						; check if last nibble (requires "zero padding")
+    	je check_my_num.last_nibble
+    	cmp ecx, 0 						; check if done
+    	je check_my_num.done
     	mov byte dl, [buffer+ecx]		; get first nibble
     	dec ecx
     	shl byte [buffer+ecx], 4
@@ -249,18 +264,10 @@ check_my_num:							; ========= i am the replacement
 
     	make_link dl
 
-    	cmp dword [head], 0
-    	jne check_tail
-    	mov eax, [current]
-    	mov [head], eax
-    	mov [tail], eax
-    	check_tail:
-    	cmp dword [tail]
-
-
     	jmp check_my_num.linking
     .last_nibble:
     	mov byte dl, [buffer+ecx]
+    	make_link dl
     	dec ecx
     .done:
     	jmp my_calc.push
@@ -322,7 +329,14 @@ my_calc.and:
      print stderr, no_args_str
 
 my_calc.push:
-     ;push to my_stack
+	pushad
+	mov eax, [head]
+	mov ebx, [op_num]
+    mov [my_stack+ebx], eax
+    inc dword [op_num]
+    popad
+    jmp my_calc.get_input
+
 
 
 my_calc.quit:
