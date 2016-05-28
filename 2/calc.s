@@ -119,13 +119,6 @@ section .text
      popad
 %endmacro
 
-%macro check_num 2 ; %1=byte to check %2=label to go
-     cmp byte %1, 57
-     ja %2
-     cmp byte %1, 48
-     jb %2
-     sub al, '0'
-%endmacro
 
 main: 
 
@@ -153,7 +146,7 @@ call_calc:
 
 	call my_calc 
      ctr:
-     print stdout, ctr_str, eax
+     ;print stdout, ctr_str, eax
 
      ; =============== This actually prints the format ====================
      pushad
@@ -182,10 +175,6 @@ my_calc:
      .get_input:
      print stdout, prompt_str
 
-     ;; ================ trying to test whether linking was succesful
-     ;mov eax, [head]
-     ;mov byte bl, [eax]						; ========= x/10cb $eax
-     ;abc:
      mov dword [head], 0
      mov dword [tail], 0
 
@@ -197,7 +186,7 @@ my_calc:
     add esp, 12
     popad
 
-    print stdout, buffer 
+    ;print stdout, buffer 
 
     ; =============== This actually prints the format ====================
     pushad
@@ -234,15 +223,8 @@ and_:
      cmp al, '&'
      je my_calc.and
 number:
-     ;check_num al, my_calc.illegal  	; ========= replaced with a thorough check on buffer
-
-	 ;cmp dword [op_num], STACKSIZE
-     ;jne my_calc.push
-     ;print stderr, over_flow_str
-
-mov eax, buffer 						; ========= x/10cb $eax
-
-										; ========= i am the replacement
+     
+	; ========= i am the replacement
 	mov ecx,0
 	.looptyloop:
 		cmp byte [buffer+ecx], 10
@@ -257,8 +239,7 @@ mov eax, buffer 						; ========= x/10cb $eax
     .confirmed:							; ========= ecx contains amount of digits
     	cmp dword [op_num], STACKSIZE
     	je number.overflow
-    	;dec ecx							; correct allignment
-    .linking:							; ========= THIS TILL END OF BLOCK IS STILL IN TESTING AND TOUGHTS
+    .linking:							; ========= THIS TILL END OF BLOCK IS WORKING! (I think)
     	cmp ecx, 1						; check if last nibble (requires "zero padding")
     	je number.last_nibble
     	cmp ecx, 0 						; check if done
@@ -281,17 +262,13 @@ mov eax, buffer 						; ========= x/10cb $eax
     .done:
     	call print_num
 
-    	pushad
-    	push new_line
-    	push dword [stdout]
-    	call fprintf
-	    add esp, 8
-	    popad
+    	print stdout, new_line			; ======= Sorry, but I needed a new line....
 
     	jmp my_calc.push
-    .overflow:
+
+    .overflow:							; too many operands in stack
     	print stderr, over_flow_str
-		jmp my_calc.get_input			; ======= END OF NOT FINISHED AND NOT WORKING BLOCK
+		jmp my_calc.get_input			
 
     
 
