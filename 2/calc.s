@@ -7,16 +7,17 @@
 %define BUFFERSIZE 80
 
 section .rodata
-frmt_str:      DB   "%s", 0        ; format string
-prompt_str:    DB   "calc: ",0,0              ; input message
-in_str:        DB   "got %s", 0        ; format string
-over_flow_str: DB   "Error: Operand Stack Overflow",10,0 ; stack overflow message
+frmt_str:      DB   "%s", 0        											; format string
+prompt_str:    DB   "calc: ",0,0              								; input message
+in_str:        DB   "got %s", 0        										; format string
+over_flow_str: DB   "Error: Operand Stack Overflow",10,0 					; stack overflow message
 no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; insufficient arguments message
-illegal_str:   DB   "Error: Illegal Input",10,0 ; illegal input message
-ctr_str:       DB   "Number of operations: %d", 10, 0 ; exit message
-read_str:      DB   "Read %s to buffer", 10, 0 ; read to buffer message
-push_str:      DB   "Pushed %d to stack", 10, 0 ; push message
-d_flag:        EQU  0x642d ; -d in ascii
+illegal_str:   DB   "Error: Illegal Input",10,0 							; illegal input message
+ctr_str:       DB   "Number of operations: %d", 10, 0 						; exit message
+nib_str:       DB   "Nibble: %x", 10, 0 									; nibble print
+read_str:      DB   "Read %s to buffer", 10, 0 								; read to buffer message
+push_str:      DB   "Pushed %d to stack", 10, 0 							; push message
+d_flag:        EQU  0x642d 													; -d in ascii
 
      
 section .bss
@@ -29,6 +30,7 @@ op_num:        DD 0 ; number of operands in the stack
 counter: 	  	DD 0 ; operation counter
 head: 			DD 0 ; head of current operand
 tail: 			DD 0 ; tail of current operand
+current_num:	DB 0 ; helper to make sure the num sent to make link isnt corrupted by the call
 
 
 
@@ -97,7 +99,8 @@ section .text
      pushad
      push 5
      call malloc
-     mov byte [eax], %1
+     mov dl, %1
+     mov byte [eax], dl
      mov dword [eax+1], 0
      									; ============== added linking to the macro, perhaps should just use a func ?
      cmp dword [head], 0				; check if its the first link, if so set as head and tail, if not link tail to the new link created
@@ -106,7 +109,9 @@ section .text
      mov [tail], eax
      jmp %%done
      %%link_tail:						; link a new link to the tail
-     mov dword [tail+1], eax			; set the new link as the NEXT of tail
+     mov dword ebx, [tail]
+     mov dword [ebx+1], eax				; set the new link as the NEXT of tail
+     mov dword [tail], eax				; set tail to be the new link
      %%done:
 
      add esp, 4
@@ -176,10 +181,10 @@ my_calc:
      .get_input:
      print stdout, prompt_str
 
-     ; ================ trying to test whether linking was succesful
-     mov eax, [head]
-     mov byte bl, [eax]						; ========= x/10cb $eax
-     abc:
+     ;; ================ trying to test whether linking was succesful
+     ;mov eax, [head]
+     ;mov byte bl, [eax]						; ========= x/10cb $eax
+     ;abc:
      mov dword [head], 0
      mov dword [tail], 0
 
@@ -236,40 +241,44 @@ number:
 
 mov eax, buffer 						; ========= x/10cb $eax
 
-check_my_num:							; ========= i am the replacement
+										; ========= i am the replacement
 	mov ecx,0
 	.looptyloop:
 		cmp byte [buffer+ecx], 10
-		je check_my_num.confirmed
+		je number.confirmed
 		cmp byte [buffer+ecx], 57
      	ja my_calc.illegal
      	cmp byte [buffer+ecx], 48
      	jb my_calc.illegal
      	sub byte [buffer+ecx], '0'
      	inc ecx
-     	jmp check_my_num.looptyloop
+     	jmp number.looptyloop
     .confirmed:							; ========= ecx contains amount of digits
     	cmp dword [op_num], STACKSIZE
-    	je check_my_num.overflow
+    	je number.overflow
+    	;dec ecx							; correct allignment
     .linking:							; ========= THIS TILL END OF BLOCK IS STILL IN TESTING AND TOUGHTS
     	cmp ecx, 1						; check if last nibble (requires "zero padding")
-    	je check_my_num.last_nibble
+    	je number.last_nibble
     	cmp ecx, 0 						; check if done
-    	je check_my_num.done
-    	mov byte dl, [buffer+ecx]		; get first nibble
+    	je number.done
+    	mov byte dl, [buffer+ecx-1]		; get first nibble
     	dec ecx
-    	shl byte [buffer+ecx], 4
-    	add byte dl, [buffer+ecx]		; get second nibble
+    	shl byte [buffer+ecx-1], 4
+    	add byte dl, [buffer+ecx-1]		; get second nibble
     	dec ecx
 
-    	make_link dl
+    	mov [current_num], dl 			; make sure value doesnt get corrupted by malloc
+    	make_link [current_num]
 
-    	jmp check_my_num.linking
+    	jmp number.linking
     .last_nibble:
-    	mov byte dl, [buffer+ecx]
-    	make_link dl
+    	mov byte dl, [buffer+ecx-1]
+    	mov [current_num], dl
+    	make_link [current_num]
     	dec ecx
     .done:
+    	call print_num
     	jmp my_calc.push
     .overflow:
     	print stderr, over_flow_str
@@ -350,6 +359,31 @@ my_calc.quit:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;  sub-routines  ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+print_num:
+	pushad
+	mov dword eax, [head]
+
+	.routine:
+	mov ebx, 0
+	mov bl, [eax]
+
+	pushad
+	push ebx
+    push nib_str
+    push dword [stdout]
+    call fprintf
+    add esp, 12
+    popad
+
+    cmp dword [eax+1], 0
+	je print_num.done
+    mov dword eax, [eax+1]
+    jmp print_num.routine
+    .done:
+    popad
+    ret
+
 
 _add:
 
