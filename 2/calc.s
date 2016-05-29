@@ -86,7 +86,7 @@ section .text
                loop %%p_loop, ecx
           push dword [stderr]
           call fprintf 
-          add esp, 1+4*%0
+          add esp, 4+4*%0
           popad
      %%skip:
 %endmacro
@@ -345,6 +345,7 @@ my_calc.illegal:
      jmp my_calc.get_input
 
 my_calc.add:
+	debug nib_str, eax
      cmp word [op_num], 2
      jb skip_add
      ;pop 2 numbers from my_stack:
