@@ -8,7 +8,7 @@
 
 section .rodata
 frmt_str:      DB   "%s", 0        											; format string
-prompt_str:    DB   "calc: ",0,0              								; input message
+prompt_str:    DB   ">>calc: ",0,0              								; input message
 in_str:        DB   "got %s", 0        										; format string
 over_flow_str: DB   "Error: Operand Stack Overflow",10,0 					; stack overflow message
 no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; insufficient arguments message
@@ -16,6 +16,7 @@ illegal_str:   DB   "Error: Illegal Input",10,0 							; illegal input message
 ctr_str:       DB   "Number of operations: %d", 10, 0 						; exit message
 nib_str:       DB   "%x", 0 												; nibble print
 nib_str_zero:  DB   "%.2x", 0 												; zero nibble print
+entry_line:	   DB 	">>", 0													; line entry...
 new_line: 	   DB 	"", 10, 0												; new line...
 read_str:      DB   "Read %s to buffer", 10, 0 								; read to buffer message
 push_str:      DB   "Pushed %d to stack", 10, 0 							; push message
@@ -190,10 +191,8 @@ call_calc:
      pushfd
 
 	call my_calc 
-     ctr:
-     ;print stdout, ctr_str, eax
 
-     ; =============== This actually prints the format ====================
+     ; =============== Print number of operations ====================
      pushad
      push eax
      push ctr_str
@@ -232,18 +231,6 @@ my_calc:
     add esp, 12
     popad
 
-    ;print stdout, buffer 
-
-    ; =============== This actually prints the format ====================
-    pushad
-    push buffer
-    push in_str
-    push dword [stdout]
-    call fprintf
-    add esp, 12
-    popad
-
-
 inc dword [counter] 		; just to see
 
      mov al, [buffer]	 	; for switch case
@@ -269,7 +256,7 @@ and_:
      je my_calc.and
 number:
      
-	; ========= i am the replacement
+	; ========= Check if there are any illegal chars, and convert ascii to numbers
 	mov ecx,0
 	.looptyloop:
 		cmp byte [buffer+ecx], 10
@@ -297,10 +284,10 @@ number:
 	mov eax, ebx
 	inc eax
 
-    .linking:							; ========= THIS TILL END OF BLOCK IS WORKING! (I think)
-    	cmp ecx, eax						; check if last nibble (requires "zero padding")
+    .linking:							; ========= Number linking block
+    	cmp ecx, eax					; check if last nibble (requires "zero padding")
     	je number.last_nibble
-    	cmp ecx, ebx 						; check if done
+    	cmp ecx, ebx 					; check if done
     	je number.done
     	mov byte dl, [buffer+ecx-1]		; get first nibble
     	dec ecx
@@ -319,12 +306,15 @@ number:
     .done:
 
 
-
+    	cmp byte [dbg], 1
+    	jne number.no_debug
     	mov dword eax, [head]
     	mov dword [tail], eax
     	call print_num
+    	print stdout, new_line			
+    .no_debug:
 
-    	print stdout, new_line			; ======= Sorry, but I needed a new line....
+    	
 
     	jmp my_calc.push
 
@@ -345,16 +335,15 @@ my_calc.illegal:
      jmp my_calc.get_input
 
 my_calc.add:
-	debug nib_str, eax
      cmp word [op_num], 2
      jb skip_add
-     ;pop 2 numbers from my_stack:
+
+     ; === pop 2 numbers from my_stack
      pop_my_stack operand1 
      pop_my_stack operand2
 
      call _add
-     ;push eax to my_stack
-     ;print answer (eax)
+
      jmp my_calc.get_input
      skip_add:
      print stderr, no_args_str
@@ -363,11 +352,12 @@ my_calc.add:
 my_calc.pop_print:
      cmp word [op_num], 1
      jb skip_pop
-     ;pop 1 number from my_stack
+
+     ; ===pop 1 number from my_stack
 	 pop_my_stack operand1
 
      call _pop_print
-     ;print answer (eax)
+     
      jmp my_calc.get_input
      skip_pop:
      print stderr, no_args_str
@@ -379,7 +369,7 @@ my_calc.dup:
      cmp word [op_num], 5
      je skip_dup_overflow
 
-     ;pop 1 number from my_stack and push to stack
+     ; === pop 1 number from my_stack and push to stack
      pop_my_stack operand1
      call _dup
 
@@ -395,13 +385,12 @@ my_calc.and:
      cmp word [op_num], 2
      jb skip_and
      
-     ;pop 2 numbers from my_stack:
+     ; === pop 2 numbers from my_stack
      pop_my_stack operand1 
      pop_my_stack operand2
 
      call _and
-     ;push eax to my_stack
-     ;print answer (eax)
+     
      jmp my_calc.get_input
      skip_and:
      print stderr, no_args_str
@@ -437,7 +426,7 @@ quit:
 ;;;;;;;;  sub-routines  ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-print_num:							; ======= prints the number pointed by head (recursive...lol)
+print_num:							; ======= prints the number pointed by head 
 	pushad
 	mov dword eax, [tail]
 
@@ -504,7 +493,7 @@ ret
 
 
 
-_add:
+_add:									; addition sub-routine
 	push ebp
     mov ebp, esp
 
@@ -556,14 +545,20 @@ _add:
 		cmp ecx, 0
 		jne _add.onelist
 
-
-	
-
 	.done:
 		cmp ah, 0
 		je _add.no_carry
 		make_link ah
 	.no_carry:
+
+		cmp byte [dbg], 1
+    	jne _add.no_debug
+    	mov dword eax, [head]
+    	mov dword [tail], eax
+    	call print_num
+    	print stdout, new_line			
+    .no_debug:
+
 		call _push					; push the new list
 
 		mov eax, [operand1_head]	; free op1
@@ -578,14 +573,14 @@ _add:
 ret ; to my_calc.and
 
 
-_pop_print:
+_pop_print:							; === pops and prints higest operand on stack
 	push ebp
 	mov ebp, esp
 
 	mov eax, [operand1]
 	mov [tail], eax
 	mov [head], eax
-
+	print stdout, entry_line
 	call print_num
 	print stdout, new_line
 	call free_num
@@ -597,7 +592,7 @@ ret ; to my_calc.pop_print
 
 
 
-_dup:
+_dup:								; === duplicates highest operand on stack
 	push ebp
     mov ebp, esp
 
@@ -616,17 +611,32 @@ _dup:
 		jmp _dup.loop
 
 	.done:
+		cmp byte [dbg], 1
+    	jne _dup.no_debug1
+    	mov dword eax, [head]
+    	mov dword [tail], eax
+    	call print_num
+    	print stdout, new_line			
+    .no_debug1:
 	call _push
 
 	mov eax, [operand1_head]	; push op1
 	mov [head], eax
+
+		cmp byte [dbg], 1
+    	jne _dup.no_debug2
+    	mov dword eax, [head]
+    	mov dword [tail], eax
+    	call print_num
+    	print stdout, new_line			
+    .no_debug2:
 	call _push
 
     pop ebp 
 ret
 
 
-_and:
+_and:								; === binary or on two highest operands
 	push ebp
     mov ebp, esp
 
@@ -643,9 +653,6 @@ _and:
 
 	    and bl, al
 	    make_link bl
-
-	    
-
 
 	    cmp ecx, 0
 	    je _and.op1done
@@ -671,7 +678,7 @@ _and:
 		link_value operand1, al
 		link_pointer operand1, ecx
 		mov [operand1], ecx
-	.a:
+	
 		make_link al
 		cmp ecx, 0
 		jne _and.onelist
@@ -703,6 +710,15 @@ _and:
      	make_link byte 0
 
 	.done:
+
+		cmp byte [dbg], 1
+    	jne _and.no_debug
+    	mov dword eax, [head]
+    	mov dword [tail], eax
+    	call print_num
+    	print stdout, new_line			
+    .no_debug:
+
 		call _push					; push the new list
 
 		mov eax, [operand1_head]	; free op1
@@ -716,7 +732,7 @@ _and:
     pop ebp 
 ret ; to my_calc.and
 
-_push:
+_push:									; === pushes an operand to stack (linked by head)
 	push ebp
     mov ebp, esp
 	mov eax, [head]
