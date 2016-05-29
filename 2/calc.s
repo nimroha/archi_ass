@@ -15,6 +15,7 @@ no_args_str:   DB   "Error: Insufficient Number of Arguments on Stack",10,0 ; in
 illegal_str:   DB   "Error: Illegal Input",10,0 							; illegal input message
 ctr_str:       DB   "Number of operations: %d", 10, 0 						; exit message
 nib_str:       DB   "%x", 0 												; nibble print
+nib_str_zero:  DB   "%.2x", 0 												; zero nibble print
 new_line: 	   DB 	"", 10, 0												; new line...
 read_str:      DB   "Read %s to buffer", 10, 0 								; read to buffer message
 push_str:      DB   "Pushed %d to stack", 10, 0 							; push message
@@ -22,8 +23,15 @@ d_flag:        EQU  0x642d 													; -d in ascii
 
      
 section .bss
-buffer:        RESB BUFFERSIZE ; input buffer
-my_stack:      RESD STACKSIZE ; operand stack
+buffer:        		RESB BUFFERSIZE ; input buffer
+my_stack:      		RESD STACKSIZE ; operand stack
+operand1:			RESD 1 ; address of head of first operand
+operand2:			RESD 1 ; address of head of second operand
+operand1_head:		RESD 1 ; address of head of first operand
+operand2_head:		RESD 1 ; address of head of second operand
+
+
+
 
 section .data
 dbg:           DB 0 ; debug flag
@@ -32,6 +40,7 @@ counter: 	  	DD 0 ; operation counter
 head: 			DD 0 ; head of current operand
 tail: 			DD 0 ; tail of current operand
 current_num:	DB 0 ; helper to make sure the num sent to make link isnt corrupted by the call
+tmp:			DD 0 ; helper to hold data between calls/pushad's/popad's
 
 
 
@@ -97,10 +106,11 @@ section .text
 %endmacro
 
 %macro make_link 1         ; %1=number
+	 mov [current_num], %1
      pushad
      push 5
      call malloc
-     mov dl, %1
+     mov dl, [current_num]
      mov byte [eax], dl
      mov dword [eax+1], 0
      									; ============== added linking to the macro, perhaps should just use a func ?
@@ -118,6 +128,35 @@ section .text
      add esp, 4
      popad
 %endmacro
+
+%macro link_value 2 ; %1=link address  %2=destination(byte)
+	pushad
+	mov eax, [%1]
+	mov byte bl, [eax]
+	mov byte [tmp], bl
+	popad
+	mov %2, 0
+	mov byte %2, [tmp]
+%endmacro
+
+%macro link_pointer 2 ; %1=link address  %2=destination(dword)
+	pushad
+	mov eax, [%1]
+	mov dword ebx, [eax+1]
+	mov dword [tmp], ebx
+	popad
+	mov dword %2, [tmp]
+%endmacro
+
+%macro pop_my_stack 1  ; %1 address
+	pushad
+	dec dword [op_num]
+    mov dword eax, [op_num]
+	mov ebx, [my_stack+4*eax]
+    mov [%1], ebx
+    popad
+%endmacro
+
 
 
 main: 
@@ -239,10 +278,23 @@ number:
     .confirmed:							; ========= ecx contains amount of digits
     	cmp dword [op_num], STACKSIZE
     	je number.overflow
+
+	mov ebx, 0
+	.zeroloop:
+	cmp byte [buffer+ebx], 0
+	jne number.not_zero
+	inc ebx
+	jmp number.zeroloop
+	.not_zero:
+	cmp ebx, ecx
+	je number.last_nibble
+	mov eax, ebx
+	inc eax
+
     .linking:							; ========= THIS TILL END OF BLOCK IS WORKING! (I think)
-    	cmp ecx, 1						; check if last nibble (requires "zero padding")
+    	cmp ecx, eax						; check if last nibble (requires "zero padding")
     	je number.last_nibble
-    	cmp ecx, 0 						; check if done
+    	cmp ecx, ebx 						; check if done
     	je number.done
     	mov byte dl, [buffer+ecx-1]		; get first nibble
     	dec ecx
@@ -250,16 +302,20 @@ number:
     	add byte dl, [buffer+ecx-1]		; get second nibble
     	dec ecx
 
-    	mov [current_num], dl 			; make sure value doesnt get corrupted by malloc
-    	make_link [current_num]
+    	;mov [current_num], dl 			; make sure value doesnt get corrupted by malloc
+    	make_link dl
 
     	jmp number.linking
     .last_nibble:
     	mov byte dl, [buffer+ecx-1]
-    	mov [current_num], dl
-    	make_link [current_num]
+    	make_link dl
     	dec ecx
     .done:
+
+
+
+    	mov dword eax, [head]
+    	mov dword [tail], eax
     	call print_num
 
     	print stdout, new_line			; ======= Sorry, but I needed a new line....
@@ -292,16 +348,20 @@ my_calc.add:
      jmp my_calc.get_input
      skip_add:
      print stderr, no_args_str
+     jmp my_calc.get_input
 
 my_calc.pop_print:
      cmp word [op_num], 1
      jb skip_pop
-     ;pop 1 number from my_stack and push to stack
-     ;call _pop_print
+     ;pop 1 number from my_stack
+	 pop_my_stack operand1
+
+     call _pop_print
      ;print answer (eax)
      jmp my_calc.get_input
      skip_pop:
      print stderr, no_args_str
+     jmp my_calc.get_input
 
 my_calc.dup:
      cmp word [op_num], 1
@@ -311,52 +371,56 @@ my_calc.dup:
      jmp my_calc.get_input
      skip_dup:
      print stderr, no_args_str
+     jmp my_calc.get_input
 
 my_calc.and:
      cmp word [op_num], 2
      jb skip_and
-     ;pop 2 numbers from my_stack and push to stack
-     ;call _and
+     
+     ;pop 2 numbers from my_stack:
+     pop_my_stack operand1 
+     pop_my_stack operand2
+
+     call _and
      ;push eax to my_stack
      ;print answer (eax)
      jmp my_calc.get_input
      skip_and:
      print stderr, no_args_str
+     jmp my_calc.get_input
 
 my_calc.push:
 	pushad
-	mov eax, [head]
-	mov ebx, [op_num]
-    mov [my_stack+ebx], eax
-    inc dword [op_num]
+	call _push
     popad
     jmp my_calc.get_input
 
 
 
 my_calc.quit:
-     ;;;;TODO: free all mallocs
+     ; ===== TODO: free all mallocs =====
      mov eax, [counter]
      mov esp, ebp
      pop ebp
-     ret ; !!ret only works in local labels !!
+     ret  ; to main
      
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;  sub-routines  ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-print_num:							; ======= prints the number pointed by head (recursive....)
+print_num:							; ======= prints the number pointed by head (recursive...lol)
 	pushad
-	mov dword eax, [head]
+	mov dword eax, [tail]
 
 	cmp dword [eax+1], 0			; base 
-	je print_num.routine
+	je print_num.highnib
 	mov dword ebx, [eax+1]
-	mov dword [head], ebx
+	mov dword [tail], ebx
 	call print_num
+	jmp print_num.lownib
 
-	.routine:
+	.highnib:
 	mov ebx, 0
 	mov bl, [eax]
 
@@ -367,17 +431,155 @@ print_num:							; ======= prints the number pointed by head (recursive....)
     call fprintf
     add esp, 12
     popad
+    jmp print_num.end
 
+    .lownib:
+    mov ebx, 0
+	mov bl, [eax]
+
+	pushad
+	push ebx
+    push nib_str_zero
+    push dword [stdout]
+    call fprintf
+    add esp, 12
     popad
-    ret
+
+    .end:
+    popad
+ret ; to number.done???
+
+free_num:							; frees a number pointed by head
+	push ebp
+	mov ebp, esp
+	pushad
+
+	.loop:
+		mov dword eax, [head]
+		link_pointer head, ebx
+	.a:
+
+		pushad
+		push eax
+		call free
+		add esp, 4
+		popad
+
+		mov [head], ebx
+		cmp ebx, 0
+		jne free_num.loop
+
+	popad
+	pop ebp
+ret
+
+
 
 
 _add:
 
+
 _pop_print:
+	push ebp
+	mov ebp, esp
+
+	mov eax, [operand1]
+	mov [tail], eax
+	mov [head], eax
+
+	call print_num
+	print stdout, new_line
+	call free_num
+
+	mov eax, 0
+	pop ebp
+ret ; to my_calc.pop_print
+
+
+
 
 _dup:
 
 _and:
+	push ebp
+    mov ebp, esp
+
+    mov eax, [operand1]
+	mov [operand1_head], eax
+	mov eax, [operand2]
+	mov [operand2_head], eax
+
+    .loop:
+	    link_value operand1, al
+	    link_value operand2, bl
+	    link_pointer operand1, ecx
+	    link_pointer operand2, edx
+
+	    and bl, al
+	    make_link bl
+
+	    
+
+
+	    cmp ecx, 0
+	    je _and.op1done
+	    cmp edx, 0
+	    je _and.op2done
+
+	    mov [operand1], ecx
+	    mov [operand2], edx
+	    jmp _and.loop
+
+	.op1done:
+		cmp edx, 0
+		je _and.done
+		mov [operand1], edx
+		jmp _and.onelist
+
+	.op2done:
+		cmp ecx, 0
+		je _and.done
+		mov [operand1], ecx
+
+	.onelist:
+		link_value operand1, al
+		link_pointer operand1, ecx
+		mov [operand1], ecx
+	.a:
+		make_link al
+		cmp ecx, 0
+		jne _and.onelist
+
+
+	.done:
+		call _push					; push the new list
+
+		mov eax, [operand1_head]	; free op1
+		mov [head], eax
+		call free_num
+
+		mov eax, [operand2_head]	; free op2
+		mov [head], eax
+		call free_num
+
+
+
+	 
+	.redirect: ; take tail of operand1 and append to operand2 (set current pointer in operand1 to null)
+
+
+	.finish:
+	; TODO: free operand1
+    pop ebp
+    mov eax, operand2
+ret ; to my_calc.and
 
 _push:
+	push ebp
+    mov ebp, esp
+	mov eax, [head]
+	mov ebx, [op_num]
+    mov [my_stack+ebx*4], eax
+    inc dword [op_num]
+    pop ebp
+    ret
