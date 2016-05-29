@@ -39,6 +39,7 @@ op_num:        DD 0 ; number of operands in the stack
 counter: 	  	DD 0 ; operation counter
 head: 			DD 0 ; head of current operand
 tail: 			DD 0 ; tail of current operand
+last_non_zero:	DD 0 ; address of last non zero link in current list
 current_num:	DB 0 ; helper to make sure the num sent to make link isnt corrupted by the call
 tmp:			DD 0 ; helper to hold data between calls/pushad's/popad's
 
@@ -73,21 +74,6 @@ section .text
 	popad
 %endmacro
 
-%macro sys_debug 1+  ; not used!!!!!!!
-     cmp byte [dbg], 0
-     je %%skip
-          pushad
-          jmp %%endstr
-          %%str: db %1
-          %%endstr:
-          mov eax, 4
-          mov ebx, 2
-          mov edx, %%endstr - %%str
-          mov ecx, %%str
-          int 0x80
-          popad
-     %%skip:
-%endmacro
 
 %macro debug 1-* ; enter as many arguments as needed
      cmp byte [dbg], 0
@@ -118,11 +104,15 @@ section .text
      jne %%link_tail
      mov [head], eax
      mov [tail], eax
-     jmp %%done
+     jmp %%check_zero
      %%link_tail:						; link a new link to the tail
      mov dword ebx, [tail]
      mov dword [ebx+1], eax				; set the new link as the NEXT of tail
      mov dword [tail], eax				; set tail to be the new link
+     %%check_zero:
+     cmp byte [current_num], 0
+     je %%done
+     mov [last_non_zero], eax
      %%done:
 
      add esp, 4
@@ -157,6 +147,22 @@ section .text
     popad
 %endmacro
 
+%macro add_daa 4 ; %1 dest, %2 addition, %3 prev carry, %4 next carry
+    add %1, %2
+    daa 
+    jnc %%no_daa_carry
+    mov byte %4, 1
+	%%no_daa_carry:
+    add %1, %3
+    daa
+    jnc %%no_add_carry
+    add byte %4, 1
+	%%no_add_carry:
+
+    mov %3, %4
+    mov %4, 0
+%endmacro
+
 
 
 main: 
@@ -174,7 +180,7 @@ main:
 
 
      arg:
-     cmp al, d_flag     ; check if -d 
+     cmp ax, d_flag     ; check if -d 
      jne call_calc
      mov byte [dbg], 1  ; raise dbg flag
      jmp call_calc
@@ -216,6 +222,7 @@ my_calc:
 
      mov dword [head], 0
      mov dword [tail], 0
+     mov dword [last_non_zero], 0
 
     pushad
     push dword [stdin]
@@ -236,7 +243,6 @@ my_calc:
     add esp, 12
     popad
 
-    ;debug buffer 			; !!!causes segfault!!!
 
 inc dword [counter] 		; just to see
 
@@ -341,8 +347,11 @@ my_calc.illegal:
 my_calc.add:
      cmp word [op_num], 2
      jb skip_add
-     ;pop 2 numbers from my_stack and push to stack
-     ;call _add
+     ;pop 2 numbers from my_stack:
+     pop_my_stack operand1 
+     pop_my_stack operand2
+
+     call _add
      ;push eax to my_stack
      ;print answer (eax)
      jmp my_calc.get_input
@@ -365,12 +374,20 @@ my_calc.pop_print:
 
 my_calc.dup:
      cmp word [op_num], 1
-     jb skip_dup
+     jb skip_dup_underflow
+     cmp word [op_num], 5
+     je skip_dup_overflow
+
      ;pop 1 number from my_stack and push to stack
-     ;call _dup
+     pop_my_stack operand1
+     call _dup
+
      jmp my_calc.get_input
-     skip_dup:
+     skip_dup_underflow:
      print stderr, no_args_str
+     jmp my_calc.get_input
+     skip_dup_overflow:
+     print stderr, over_flow_str
      jmp my_calc.get_input
 
 my_calc.and:
@@ -398,7 +415,17 @@ my_calc.push:
 
 
 my_calc.quit:
-     ; ===== TODO: free all mallocs =====
+quit:
+     mov ecx, [op_num]
+     cmp ecx,0
+     je quit.free_done
+
+     .loop:
+     	pop_my_stack head
+     	call free_num
+     	loop quit.loop, ecx
+
+     .free_done:
      mov eax, [counter]
      mov esp, ebp
      pop ebp
@@ -447,7 +474,7 @@ print_num:							; ======= prints the number pointed by head (recursive...lol)
 
     .end:
     popad
-ret ; to number.done???
+ret 
 
 free_num:							; frees a number pointed by head
 	push ebp
@@ -477,6 +504,77 @@ ret
 
 
 _add:
+	push ebp
+    mov ebp, esp
+
+    mov eax, [operand1]
+	mov [operand1_head], eax
+	mov eax, [operand2]
+	mov [operand2_head], eax
+
+	mov ah, 0							; prev carry
+	mov bh, 0							; next carry
+    .loop:
+	    link_value operand1, al
+	    link_value operand2, bl
+	    link_pointer operand1, ecx
+	    link_pointer operand2, edx
+
+		add_daa al, bl, ah, bh
+	    make_link al
+
+
+	    cmp ecx, 0
+	    je _add.op1done
+	    cmp edx, 0
+	    je _add.op2done
+
+	    mov [operand1], ecx
+	    mov [operand2], edx
+	    jmp _add.loop
+
+	.op1done:
+		cmp edx, 0
+		je _add.done
+		mov [operand1], edx
+		jmp _add.onelist
+
+	.op2done:
+		cmp ecx, 0
+		je _add.done
+		mov [operand1], ecx
+
+	.onelist:
+		link_value operand1, al
+		link_pointer operand1, ecx
+		mov [operand1], ecx
+	
+		add_daa al, 0, ah, bh
+
+		make_link al
+		cmp ecx, 0
+		jne _add.onelist
+
+
+	
+
+	.done:
+		cmp ah, 0
+		je _add.no_carry
+		make_link ah
+	.no_carry:
+		call _push					; push the new list
+
+		mov eax, [operand1_head]	; free op1
+		mov [head], eax
+		call free_num
+
+		mov eax, [operand2_head]	; free op2
+		mov [head], eax
+		call free_num
+
+    pop ebp 
+ret ; to my_calc.and
 
 
 _pop_print:
@@ -499,6 +597,33 @@ ret ; to my_calc.pop_print
 
 
 _dup:
+	push ebp
+    mov ebp, esp
+
+    mov eax, [operand1]
+	mov [operand1_head], eax
+
+	.loop:
+		link_value operand1, al
+		link_pointer operand1, ecx
+
+		make_link al
+		cmp ecx, 0
+		je _dup.done
+
+		mov dword [operand1], ecx
+		jmp _dup.loop
+
+	.done:
+	call _push
+
+	mov eax, [operand1_head]	; push op1
+	mov [head], eax
+	call _push
+
+    pop ebp 
+ret
+
 
 _and:
 	push ebp
@@ -532,13 +657,13 @@ _and:
 
 	.op1done:
 		cmp edx, 0
-		je _and.done
+		je _and.check_zeroes
 		mov [operand1], edx
 		jmp _and.onelist
 
 	.op2done:
 		cmp ecx, 0
-		je _and.done
+		je _and.check_zeroes
 		mov [operand1], ecx
 
 	.onelist:
@@ -551,6 +676,31 @@ _and:
 		jne _and.onelist
 
 
+	.check_zeroes:
+		mov dword eax, [head]		; save head link
+		mov dword [tail], eax
+
+		cmp dword [last_non_zero], 0
+		je _and.onlyzeroes
+
+		mov ebx, [last_non_zero]
+		cmp dword [ebx+1], 0
+		je _and.done
+
+		mov eax, [ebx+1]			; free zeroes
+		mov [head], eax
+		call free_num
+		mov dword [ebx+1], 0		
+		mov dword eax, [tail]		; restore head link
+		mov dword [head], eax
+		jmp _and.done
+
+	.onlyzeroes:
+		call free_num				; free the zero sequence
+		mov dword [head], 0
+     	mov dword [tail], 0 
+     	make_link byte 0
+
 	.done:
 		call _push					; push the new list
 
@@ -562,16 +712,7 @@ _and:
 		mov [head], eax
 		call free_num
 
-
-
-	 
-	.redirect: ; take tail of operand1 and append to operand2 (set current pointer in operand1 to null)
-
-
-	.finish:
-	; TODO: free operand1
-    pop ebp
-    mov eax, operand2
+    pop ebp 
 ret ; to my_calc.and
 
 _push:
@@ -582,4 +723,4 @@ _push:
     mov [my_stack+ebx*4], eax
     inc dword [op_num]
     pop ebp
-    ret
+ret
