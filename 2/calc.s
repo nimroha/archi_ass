@@ -164,7 +164,17 @@ section .text
     mov %4, 0
 %endmacro
 
-
+%macro debug_print 1   ; %1=head of number
+	cmp byte [dbg], 0
+	je %%skip
+	mov eax, [%1]
+	mov [tail], eax
+	mov [head], eax
+	print stderr, entry_line
+	call print_num
+	print stderr, new_line
+	%%skip:
+%endmacro
 
 main: 
 
@@ -426,7 +436,7 @@ quit:
 ;;;;;;;;  sub-routines  ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-print_num:							; ======= prints the number pointed by head 
+print_num:							; ======= prints the number pointed by head to stdout
 	pushad
 	mov dword eax, [tail]
 
@@ -458,6 +468,46 @@ print_num:							; ======= prints the number pointed by head
 	push ebx
     push nib_str_zero
     push dword [stdout]
+    call fprintf
+    add esp, 12
+    popad
+
+    .end:
+    popad
+ret 
+
+debug_num:							; ======= prints the number pointed by head to stderr if debug prints activated
+	pushad
+	mov dword eax, [tail]
+
+	cmp dword [eax+1], 0			; base 
+	je debug_num.highnib
+	mov dword ebx, [eax+1]
+	mov dword [tail], ebx
+	call debug_num
+	jmp debug_num.lownib
+
+	.highnib:
+	mov ebx, 0
+	mov bl, [eax]
+
+	pushad
+	push ebx
+    push nib_str
+    push dword [stderr]
+    call fprintf
+    add esp, 12
+    popad
+    jmp debug_num.end
+
+    .lownib:
+    mov ebx, 0
+	mov bl, [eax]
+
+	pushad
+	push ebx
+    push nib_str_zero
+    push dword [stderr]
     call fprintf
     add esp, 12
     popad
@@ -555,8 +605,8 @@ _add:									; addition sub-routine
     	jne _add.no_debug
     	mov dword eax, [head]
     	mov dword [tail], eax
-    	call print_num
-    	print stdout, new_line			
+    	call debug_num
+    	print stderr, new_line			
     .no_debug:
 
 		call _push					; push the new list
@@ -615,8 +665,8 @@ _dup:								; === duplicates highest operand on stack
     	jne _dup.no_debug1
     	mov dword eax, [head]
     	mov dword [tail], eax
-    	call print_num
-    	print stdout, new_line			
+    	call debug_num
+    	print stderr, new_line			
     .no_debug1:
 	call _push
 
@@ -627,8 +677,8 @@ _dup:								; === duplicates highest operand on stack
     	jne _dup.no_debug2
     	mov dword eax, [head]
     	mov dword [tail], eax
-    	call print_num
-    	print stdout, new_line			
+    	call debug_num
+    	print stderr, new_line			
     .no_debug2:
 	call _push
 
@@ -715,8 +765,8 @@ _and:								; === binary or on two highest operands
     	jne _and.no_debug
     	mov dword eax, [head]
     	mov dword [tail], eax
-    	call print_num
-    	print stdout, new_line			
+    	call debug_num
+    	print stderr, new_line			
     .no_debug:
 
 		call _push					; push the new list
@@ -739,5 +789,6 @@ _push:									; === pushes an operand to stack (linked by head)
 	mov ebx, [op_num]
     mov [my_stack+ebx*4], eax
     inc dword [op_num]
+    ;debug_print head
     pop ebp
 ret
