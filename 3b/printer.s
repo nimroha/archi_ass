@@ -10,6 +10,8 @@ section .bss
 section .text
 	align 16
 	global printer
+	extern CORS
+	extern resume
 	extern world
 	extern WorldLength
 	extern WorldWidth
@@ -59,6 +61,11 @@ printer:
 		inc ecx
 		cmp ecx, dword [WorldLength]
 		jb printer.col
+
+	mov 	ebx, CORS 				; address of scheduler
+	call 	resume
+
+	jmp printer
 
 
 	mov	esp, ebp					; Function exit code
