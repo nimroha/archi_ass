@@ -24,7 +24,7 @@ void printWorld(int **world){
 		}
 		for(current_width = 0 ; current_width < WorldWidth ; current_width++){
 			fprintf(stderr, "%d ", *(*(world + current_length) + current_width) );
-			fprintf(stderr, "%p ", world + current_length*WorldWidth + current_width);
+			fprintf(stderr, "%p ", *(world + current_length) + current_width);
 		}
 		fprintf(stderr, "\n");
 	}
@@ -67,10 +67,10 @@ int main(int argc, char** argv){ /* 1-name, 2-length, 3-width, 4-gen, 5-freq */
 	}
 
 	/* Dynamic allocate for world matrix */
-	world = malloc(WorldLength * sizeof(int*));
+	world = (int **) malloc(WorldLength * sizeof(int*));
     for (i=0 ; i < WorldLength ; i++)
     {
-      	world[i] = malloc(WorldWidth * sizeof(int));
+      	world[i] = (int *) malloc(WorldWidth * sizeof(int));
     }
 
 	/* Get run args */
@@ -82,12 +82,16 @@ int main(int argc, char** argv){ /* 1-name, 2-length, 3-width, 4-gen, 5-freq */
 		current_num -= '0';
 		switch(current_num){
 			case 0:
-				world[current_length][current_width] = 0;
-				current_width++;
+				if(current_length < WorldLength && current_width < WorldWidth){
+					world[current_length][current_width] = 0;
+					current_width++;
+				}
 				break;
 			case 1:
-			    world[current_length][current_width] = 1;
-			    current_width++;
+				if(current_length < WorldLength && current_width < WorldWidth){
+			    	world[current_length][current_width] = 1;
+			    	current_width++;
+			    }
 			    break;
 			case 10-'0':
 				current_width = 0;

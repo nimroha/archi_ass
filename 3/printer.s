@@ -53,11 +53,14 @@ printer:
 			inc edx
 			cmp edx, dword [WorldWidth]
 			jb printer.row
-		mov edx, dword 0
 		print_format new_line
 
+		mov edx, dword 0
+		add ebx, dword 8
+		
+
 		inc ecx
-		cmp ecx, dword [WorldWidth]
+		cmp ecx, dword [WorldLength]
 		jb printer.col
 
 

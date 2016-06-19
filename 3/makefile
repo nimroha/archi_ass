@@ -7,7 +7,8 @@ ASM_FLAGS	:=	-f elf
 all: 
 	$(ASM) $(ASM_FLAGS) scheduler.s -o scheduler.o
 	$(ASM) $(ASM_FLAGS) printer.s -o printer.o
-	$(CC) $(CC_FLAGS) ass3.c scheduler.o printer.o -o ass3
+	$(ASM) $(ASM_FLAGS) coroutines.s -o coroutines.o
+	$(CC) $(CC_FLAGS) ass3.c scheduler.o printer.o coroutines.o -o ass3
 	
 
 # scheduler.o:	
